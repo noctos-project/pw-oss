@@ -1,0 +1,22 @@
+[package]
+name = "spa-kitchen-sink-illumos-oss"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors = ["NoctOS contributors"]
+license.workspace = true
+repository = "https://github.com/noctos-project/pw-oss"
+description = "illumos OSS (audio framework) sound output/input plugin for PipeWire"
+publish = false
+
+[lib]
+name = "spa_illumos_oss"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc.workspace = true
+libspa.workspace = true
+spa-kitchen-sink-core = { path = "../core" }
+
+[dev-dependencies]
+spa-kitchen-sink-core = { path = "../core", features = ["test-support"] }

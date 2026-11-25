@@ -408,6 +408,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "spa-kitchen-sink-illumos-oss"
+version = "0.9.13"
+dependencies = [
+ "libc",
+ "libspa",
+ "spa-kitchen-sink-core",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
