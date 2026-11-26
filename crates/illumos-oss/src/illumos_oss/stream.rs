@@ -440,16 +440,27 @@ impl PlaybackOperations for OssStream {
         self.running = true;
         self.period_bytes = request.period_bytes;
         let queued = <Self as PlaybackOperations>::queued_bytes(self);
-        let geometry = playback_geometry(request, self.capacity_bytes, self.fragment_bytes, queued);
+        let mut geometry =
+            playback_geometry(request, self.capacity_bytes, self.fragment_bytes, queued);
+        // The kernel starts playing with the first byte written. Pre-fill
+        // with silence up to the goal so that the cycle's real write lands
+        // on a full cushion; without it the stream runs dry until the fill
+        // has built up (one dropout right after every start).
+        geometry.target_fill_bytes = geometry.target_goal_bytes;
+        let stride = self.stride.max(1);
+        let prefill = geometry.target_goal_bytes.saturating_sub(queued) / stride * stride;
+        let written = self.write_zeroes(prefill as usize);
         crate::debug!(
             log,
-            "{}: prime period {} target {} minimum {} capacity {} (needs {})",
+            "{}: prime period {} target {} minimum {} capacity {} (needs {}), pre-filled {} of {}",
             self.path,
             request.period_bytes,
             geometry.target_goal_bytes,
             geometry.minimum_fill_bytes,
             geometry.capacity_bytes,
-            geometry.required_capacity_bytes
+            geometry.required_capacity_bytes,
+            written,
+            prefill
         );
         geometry
     }
