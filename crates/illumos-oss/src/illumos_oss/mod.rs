@@ -15,8 +15,8 @@ pub(crate) use identity::{
 pub(crate) use stream::OssStream;
 
 use crate::backend::{
-    ChannelMapError, ChannelSet, ConfigurationFlags, ConversionPath, RateSet, StreamCaps,
-    StreamConfig, StreamConfiguration,
+    ChannelLayout, ChannelMapError, ChannelSet, ConfigurationFlags, ConversionPath, RateSet,
+    StreamCaps, StreamConfig, StreamConfiguration,
 };
 
 /// What every illumos audio device accepts from a client: the framework
@@ -25,7 +25,22 @@ pub(crate) fn caps() -> StreamCaps {
     StreamCaps {
         configurations: vec![StreamConfiguration {
             formats: stream::FORMATS.iter().map(|(_, spa)| *spa).collect(),
-            channels: ChannelSet::Range { min: 1, max: 2 },
+            // Named layouts, stereo first: the shared node code only admits a
+            // channel map it was offered, and a bare channel-count range
+            // would leave the ports without speaker positions.
+            channels: ChannelSet::Discrete(vec![
+                ChannelLayout {
+                    channels: 2,
+                    positions: Some(vec![
+                        libspa::sys::SPA_AUDIO_CHANNEL_FL,
+                        libspa::sys::SPA_AUDIO_CHANNEL_FR,
+                    ]),
+                },
+                ChannelLayout {
+                    channels: 1,
+                    positions: Some(vec![libspa::sys::SPA_AUDIO_CHANNEL_MONO]),
+                },
+            ]),
             rates: RateSet::Range {
                 min: 8_000,
                 max: 192_000,
@@ -127,6 +142,18 @@ mod tests {
             stride: 4,
         };
         assert!(IllumosOss::validate_config(&caps, &config).is_ok());
+        config.positions = vec![
+            libspa::sys::SPA_AUDIO_CHANNEL_FL,
+            libspa::sys::SPA_AUDIO_CHANNEL_FR,
+        ];
+        assert!(IllumosOss::validate_config(&caps, &config).is_ok());
+        // A map the device was never offered with is refused.
+        config.positions = vec![
+            libspa::sys::SPA_AUDIO_CHANNEL_AUX0,
+            libspa::sys::SPA_AUDIO_CHANNEL_AUX1,
+        ];
+        assert!(IllumosOss::validate_config(&caps, &config).is_err());
+        config.positions = Vec::new();
         config.format = libspa::param::audio::AudioFormat(libspa::sys::SPA_AUDIO_FORMAT_F32_LE);
         assert!(IllumosOss::validate_config(&caps, &config).is_err());
     }
