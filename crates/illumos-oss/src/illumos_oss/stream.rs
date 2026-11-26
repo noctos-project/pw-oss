@@ -579,15 +579,20 @@ impl PlaybackOperations for OssStream {
     }
 
     fn pause(&mut self) -> Result<PauseOutcome, StreamError> {
-        // The queue is not preserved across a pause; the node resets and
-        // primes again on Start.
-        Ok(PauseOutcome::Reprime)
+        // Leave the device alone: the kernel keeps playing what is queued
+        // and then plays silence. Halting here would throw away the tail of
+        // whatever was just played (the last ~170 ms of a file). A later
+        // suspend still halts and closes the device.
+        Ok(PauseOutcome::Preserved)
     }
 
     fn resume(&mut self) -> Result<(), StreamError> {
         if self.fd < 0 {
             return Err(StreamError::from_native_code(libc::ENODEV));
         }
+        // The queue ran empty while paused; those are not underruns of a
+        // running stream. Reading the counter clears it.
+        let _ = self.errors();
         self.running = true;
         Ok(())
     }
