@@ -41,6 +41,7 @@ pub(crate) const SNDCTL_DSP_HALT: c_int = oss_io(b'P', 0);
 pub(crate) const SNDCTL_DSP_SPEED: c_int = oss_iowr::<c_int>(b'P', 2);
 pub(crate) const SNDCTL_DSP_SETFMT: c_int = oss_iowr::<c_int>(b'P', 5);
 pub(crate) const SNDCTL_DSP_CHANNELS: c_int = oss_iowr::<c_int>(b'P', 6);
+pub(crate) const SNDCTL_DSP_SETFRAGMENT: c_int = oss_iowr::<c_int>(b'P', 10);
 pub(crate) const SNDCTL_DSP_GETOSPACE: c_int = oss_ior::<AudioBufInfo>(b'P', 12);
 pub(crate) const SNDCTL_DSP_GETISPACE: c_int = oss_ior::<AudioBufInfo>(b'P', 13);
 pub(crate) const SNDCTL_DSP_GETODELAY: c_int = oss_ior::<c_int>(b'P', 23);
@@ -206,6 +207,7 @@ mod tests {
         assert_eq!(SNDCTL_DSP_SPEED, 0x6004_5002);
         assert_eq!(SNDCTL_DSP_SETFMT, 0x6004_5005);
         assert_eq!(SNDCTL_DSP_CHANNELS, 0x6004_5006);
+        assert_eq!(SNDCTL_DSP_SETFRAGMENT, 0x6004_500a);
         assert_eq!(SNDCTL_DSP_GETOSPACE, 0x2010_500c);
         assert_eq!(SNDCTL_DSP_GETISPACE, 0x2010_500d);
         assert_eq!(SNDCTL_DSP_GETODELAY, 0x2004_5017);

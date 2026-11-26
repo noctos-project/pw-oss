@@ -22,7 +22,7 @@ use crate::spa::Log;
 use super::abi::{
     self, AFMT_S16_LE, AFMT_S24_LE, AFMT_S32_LE, AudioBufInfo, AudioErrInfo, SNDCTL_DSP_CHANNELS,
     SNDCTL_DSP_GETERROR, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETODELAY, SNDCTL_DSP_GETOSPACE,
-    SNDCTL_DSP_HALT, SNDCTL_DSP_SETFMT, SNDCTL_DSP_SPEED,
+    SNDCTL_DSP_HALT, SNDCTL_DSP_SETFMT, SNDCTL_DSP_SETFRAGMENT, SNDCTL_DSP_SPEED,
 };
 use super::identity::OssNodeProperties;
 
@@ -34,6 +34,30 @@ pub(crate) const FORMATS: &[(c_int, u32)] = &[
 ];
 
 const SILENCE: [u8; 16 * 1024] = [0; 16 * 1024];
+
+/// Buffer size hint given to the kernel before the format is set.
+///
+/// An OSS client on illumos gets five 10 ms fragments (50 ms) unless it asks
+/// otherwise, which is barely more than one graph quantum. The request is
+/// "fragment count << 16 | log2(fragment bytes)"; the kernel only uses the
+/// product, as a byte total that must stay below its fixed 64 KiB client
+/// buffer, and then lays out its own 10 ms fragments within it.
+const BUFFER_HINT: c_int = (15 << 16) | 12; // 15 * 4096 = 61440 bytes
+
+/// What `playback_geometry` needs, per period: two periods plus a target of
+/// one and a quarter.
+const PERIODS_NEEDED_NUM: u32 = 13;
+const PERIODS_NEEDED_DEN: u32 = 4;
+
+/// The largest graph quantum, in frames, a device buffer of this size can
+/// sustain.
+pub(crate) fn quantum_cap_frames(capacity_bytes: u32, stride: u32) -> Option<u32> {
+    if capacity_bytes == 0 || stride == 0 {
+        return None;
+    }
+    let frames = capacity_bytes / stride;
+    Some((frames.saturating_mul(PERIODS_NEEDED_DEN) / PERIODS_NEEDED_NUM).max(1))
+}
 
 fn afmt_for(spa_format: u32) -> Option<c_int> {
     FORMATS
@@ -189,6 +213,8 @@ impl OssStream {
     /// Negotiate channels, format and rate; returns what the device applied.
     fn negotiate(&mut self, config: &StreamConfig) -> Result<StreamConfig, c_int> {
         let wanted_afmt = afmt_for(config.format.0).unwrap_or(AFMT_S16_LE);
+        // A hint only; it takes effect when the parameters below are set.
+        let _ = abi::ioctl_int(self.fd, SNDCTL_DSP_SETFRAGMENT, BUFFER_HINT);
         let channels = abi::ioctl_int(self.fd, SNDCTL_DSP_CHANNELS, config.channels as c_int)?;
         let afmt = abi::ioctl_int(self.fd, SNDCTL_DSP_SETFMT, wanted_afmt)?;
         let rate = abi::ioctl_int(self.fd, SNDCTL_DSP_SPEED, config.rate as c_int)?;
@@ -234,7 +260,11 @@ impl OssStream {
                 quantum_bytes: (self.fragment_bytes != 0).then_some(self.fragment_bytes),
                 delivery: DeliveryQuantum::unavailable(),
             },
-            buffer_constraints: BufferConstraints::default(),
+            buffer_constraints: BufferConstraints {
+                capacity_limit_bytes: (self.capacity_bytes != 0).then_some(self.capacity_bytes),
+                quantum_cap_frames: quantum_cap_frames(self.capacity_bytes, self.stride),
+                quantum_cap_basis: Some("3.25 periods"),
+            },
         }
     }
 
@@ -729,6 +759,27 @@ mod tests {
             write_bytes: period,
             maximum_write_bytes: period,
         }
+    }
+
+    #[test]
+    fn the_buffer_hint_stays_under_the_kernel_limit() {
+        let fragments = (BUFFER_HINT >> 16) as u32;
+        let bytes = 1u32 << (BUFFER_HINT & 0xffff);
+        assert!((2..0x7fff).contains(&fragments));
+        assert!(fragments * bytes < 65_536);
+    }
+
+    #[test]
+    fn the_quantum_cap_follows_the_device_buffer() {
+        // 61440 bytes of 8-byte frames: room for a 2048-frame quantum.
+        assert_eq!(quantum_cap_frames(61_440, 8), Some(2_363));
+        // The 50 ms default (19200 bytes) is not: the cap drops below 1024.
+        assert_eq!(quantum_cap_frames(19_200, 8), Some(738));
+        assert_eq!(quantum_cap_frames(0, 8), None);
+        // The cap is exactly what the geometry formula asks for.
+        let period = 2_363 * 8;
+        let geometry = playback_geometry(request(period), 61_440, 3_840, 0);
+        assert!(geometry.capacity_bytes >= geometry.required_capacity_bytes);
     }
 
     #[test]
