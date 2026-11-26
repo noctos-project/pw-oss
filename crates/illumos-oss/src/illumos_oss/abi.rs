@@ -44,6 +44,8 @@ pub(crate) const SNDCTL_DSP_CHANNELS: c_int = oss_iowr::<c_int>(b'P', 6);
 pub(crate) const SNDCTL_DSP_SETFRAGMENT: c_int = oss_iowr::<c_int>(b'P', 10);
 pub(crate) const SNDCTL_DSP_GETOSPACE: c_int = oss_ior::<AudioBufInfo>(b'P', 12);
 pub(crate) const SNDCTL_DSP_GETISPACE: c_int = oss_ior::<AudioBufInfo>(b'P', 13);
+// Total output delay including the device ring; kept for latency reporting.
+#[allow(dead_code)]
 pub(crate) const SNDCTL_DSP_GETODELAY: c_int = oss_ior::<c_int>(b'P', 23);
 pub(crate) const SNDCTL_DSP_GETERROR: c_int = oss_ior::<AudioErrInfo>(b'P', 25);
 // Device enumeration (not used yet: the catalog is static for now).

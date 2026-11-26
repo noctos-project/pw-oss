@@ -21,8 +21,8 @@ use crate::spa::Log;
 
 use super::abi::{
     self, AFMT_S16_LE, AFMT_S24_LE, AFMT_S32_LE, AudioBufInfo, AudioErrInfo, SNDCTL_DSP_CHANNELS,
-    SNDCTL_DSP_GETERROR, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETODELAY, SNDCTL_DSP_GETOSPACE,
-    SNDCTL_DSP_HALT, SNDCTL_DSP_SETFMT, SNDCTL_DSP_SETFRAGMENT, SNDCTL_DSP_SPEED,
+    SNDCTL_DSP_GETERROR, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETOSPACE, SNDCTL_DSP_HALT,
+    SNDCTL_DSP_SETFMT, SNDCTL_DSP_SETFRAGMENT, SNDCTL_DSP_SPEED,
 };
 use super::identity::OssNodeProperties;
 
@@ -515,9 +515,17 @@ impl PlaybackOperations for OssStream {
     }
 
     fn queued_bytes(&self) -> u32 {
-        abi::ioctl_int(self.fd, SNDCTL_DSP_GETODELAY, 0)
-            .map(|bytes| bytes.max(0) as u32)
-            .unwrap_or(0)
+        // The client stream's own buffer: capacity minus free space.
+        //
+        // Not SNDCTL_DSP_GETODELAY: on illumos that adds the frames already
+        // mixed into the device's ring (auclnt_get_output_qlen's second
+        // count), which stays at tens of milliseconds whether or not this
+        // stream has supplied anything. Measured on the first runs: the
+        // device ring held 1024-4095 frames throughout while the stream
+        // buffer was empty more than half the time, so the fill the node
+        // steered by never showed the starvation.
+        let free = self.buffer_info(SNDCTL_DSP_GETOSPACE).bytes.max(0) as u32;
+        self.capacity_bytes.saturating_sub(free)
     }
 
     fn underruns(&self) -> XrunObservation {
